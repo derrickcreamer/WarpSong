@@ -1,0 +1,7 @@
+extends layout.pug
+
+block content
+	| This browser session already has an active connection (or, the connection was recently dropped).
+	| Click this button to reconnect:
+	form(method='post' action='/reconnect')
+		input(type='submit' value='Reconnect' autofocus)

@@ -1,0 +1,14 @@
+extends layout.pug
+
+block content
+	form(action='' onSubmit='return handleSubmit(event);')
+		label(for='link') Link:
+		input#linkInput(type='text' name='link' autofocus oninput='checkForPaste()')
+		button(type='button' onclick='sendMessage()') Send
+	label(for='autoOpen') Automatically open received links? :
+	input#autoOpenOption(type='checkbox' name='autoOpen')
+	label(for='autoSend') Automatically send pasted links? :
+	input#autoSendOption(type='checkbox' name='autoSend')
+	#connectionCount ?
+	#chatlog
+	script(src='static/warpsong.js')
