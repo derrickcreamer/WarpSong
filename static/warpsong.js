@@ -30,16 +30,37 @@ function checkForPaste(){
 
 function updateNumConnections(count){
 	document.getElementById('connectionCount').innerText = count;
+	switch(count){ // Quick hack
+		case '?':
+		case 0:
+		case 1:
+			document.getElementById('linkButton').disabled = true;
+			//document.getElementById('linkButton').setAttribute('disabled', 'disabled');
+			break;
+		default:
+			document.getElementById('linkButton').disabled = false;
+			//document.getElementById('linkButton').removeAttribute('disabled');
+			break;
+	}
 	//todo, border colors etc.?
 }
 
+function getURL(url){
+	if(url.substring(0, 7) === 'http://') return url;
+	else return 'http://' + url;
+}
+
 function addLinkToPage(url){
+	var text = url;
+	url = getURL(url);
 	var a = document.createElement('a');
-	a.innerHTML = url;
+	a.innerHTML = text;
 	a.setAttribute('href', url);
 	a.setAttribute('target', '_blank');
+	var div = document.createElement('div');
+	div.appendChild(a);
 	var chatlog = document.getElementById('chatlog');
-	chatlog.insertBefore(a, chatlog.firstChild);
+	chatlog.insertBefore(div, chatlog.firstChild);
 	return a;
 }
 
@@ -68,7 +89,6 @@ ws.onopen = function(e){
 
 ws.onclose = function(e){
 	updateNumConnections('?');
-	//todo, what else? gray stuff out, disable button?
 };
 
 ws.onmessage = function(e){
@@ -81,9 +101,10 @@ ws.onmessage = function(e){
 			updateNumConnections(message.count);
 			break;
 		case 'link':
-			var a = addLinkToPage(message.link);
+			var url = getURL(message.link);
+			var a = addLinkToPage(url);
 			if(document.getElementById('autoOpenOption').checked){
-				window.open(message.link, '_blank');
+				window.open(url, '_blank');
 				//todo, maybe move this link to 'old links' area?
 			}
 			else{

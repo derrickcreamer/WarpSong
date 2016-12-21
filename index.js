@@ -37,6 +37,7 @@ app.use(expressSession({
 	secret: 'changeThisLater', //todo
 	resave: false,
 	saveUninitialized: false,
+	cookie: { maxAge: 50000000000 }, // 50 billion ms is just over a year and a half.
 	store: new knexSessionStore({
 		knex: db
 	})

@@ -1,0 +1,45 @@
+body, input, button {
+	font-family: Consolas, Monospace, Sans-Serif;
+}
+body{
+	margin: 0;
+	padding: 0;
+}
+input:disabled, button:disabled{
+	color: #ddd;
+}
+#linkInput{
+	padding: 4px; /* should be em/rem here */
+	margin: 3px 0 0 3px;
+	width: 94%; /* this is a hack based on the minimum window size in firefox */
+}
+#linkButton{
+	padding: 0;
+	margin: 0 0 0 2px;
+	display: block;
+}
+#connectionCountArea{
+	margin: 0 0 .9em 3px;
+}
+.optionLabel{
+	display: inline-block;
+	max-width: 80%;
+}
+.optionArea{
+	margin: .3em 0 0 3px;
+}
+.optionArea > *{
+	vertical-align: middle;
+}
+#chatlog{
+	margin: .9em 0 0 0;
+}
+#chatlog > div{
+	padding: .4em 0;
+	background-color: #ccc;
+	border-radius: 0 0 3em 0;
+	margin: .3em 0 0 0;
+}
+#chatlog a{
+	margin: 0 0 0 3px;
+}
