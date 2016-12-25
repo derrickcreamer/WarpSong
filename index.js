@@ -22,19 +22,11 @@ var db = knex({
 	useNullAsDefault: true
 });
 
-//Promise.try(() => scrypt.hash('fakepassword'))
-//	.then(hash => db('users').insert({
-//		name: 'fakeadmin',
-//		hash: hash
-//	}));
-	//.then(() => db('users').del());
-
-
 app.set('views', path.join(__dirname, '/views'));
 app.set('view engine', 'pug');
 
 app.use(expressSession({
-	secret: 'changeThisLater', //todo
+	secret: 'changeThisLater',
 	resave: false,
 	saveUninitialized: false,
 	cookie: { maxAge: 50000000000 }, // 50 billion ms is just over a year and a half.
@@ -52,36 +44,42 @@ app.get('/login', (req, res) => res.render('login'));
 app.get('/register', (req, res) => res.render('register'));
 
 app.post('/login', (req, res) => {
-	Promise.try(() => db('users').where({ name: req.body.name }))
+	return Promise.try(() => db('users').where({ name: req.body.name }))
 	.then(users => {
-		if(users.length == 0) res.render('login'); //todo, is this right? This part should give a generic "username or password incorrect" message, right?
+		if(users.length == 0) res.render('login', { errors: ['Invalid username or password.'] });
 		else{
-			Promise.try(() => scrypt.verifyHash(req.body.pw, users[0].hash))
+			return Promise.try(() => scrypt.verifyHash(req.body.pw, users[0].hash))
 			.then(() => {
 				req.session.userID = users[0].id; // Login successful
 				res.redirect('/');
 			})
-			.catch(scrypt.PasswordError, err => res.render('login')); //todo, same generic error as above.
+			.catch(scrypt.PasswordError, err => res.render('login', { errors: ['Invalid username or password.'] }));
 		}
 	});
 });
 
 app.post('/register', (req, res) => {
-	if(req.body.pw.length < 4) res.render('register'); //todo, error message
-	else if(req.body.name.length < 2) res.render('register'); //todo, add message
-	else if(req.body.pw !== req.body.confirmPw) res.render('register'); //todo, add message
-	//todo: combine all error messages and display as many as possible.
-	else{ //todo, valid chars, etc.
-		Promise.all([
+	var locals = { errors: [] };
+	if(req.body.pw !== req.body.confirmPw) locals.errors.push('Passwords do not match.'); // Don't bother checking pw length if they don't match.
+	else if(req.body.pw.length < 4) locals.errors.push('Password must contain at least 4 characters.');
+	if(req.body.name.length < 2){ // Don't bother checking for existing user if name is too short.
+		locals.errors.push('Username must contain at least 2 characters.');
+		res.render('register', locals);
+	}
+	else{ //todo, more errors, for valid chars etc.
+		return Promise.all([
 			() => scrypt.hash(req.body.pw),
 			() => db('users').where({ name: req.body.name })
-			].map(x => Promise.try(x))
-		).then(results => {
+			].map(x => Promise.try(x)))
+		.then(results => {
 			var hash = results[0];
 			var users = results[1];
-			if(users.length > 0) res.render('register'); //todo, "username is taken"
+			if(users.length > 0){
+				locals.errors.push('That username is already taken.');
+				res.render('register', locals);
+			}
 			else{ // registration successful
-				Promise.try(() => db('users').insert({ name: req.body.name, hash: hash }))
+				return Promise.try(() => db('users').insert({ name: req.body.name, hash: hash }))
 				.then(() => db('users').where({ name: req.body.name }))
 				.then(justInsertedUsers => {
 					var justInsertedUser = justInsertedUsers[0];

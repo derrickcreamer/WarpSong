@@ -1,9 +1,11 @@
 extends layout.pug
 
 block title
-	title Warpsong - Log in
+	title WarpSong - Log in
 
 block content
+	each error in errors || []
+		.error= error
 	form(method='post' action='/login')
 		label(for='name') Username:
 		input(type='text' name='name' autofocus)
