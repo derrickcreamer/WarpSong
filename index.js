@@ -1,26 +1,20 @@
-var express = require('express');
-var knex = require('knex');
-var expressSession = require('express-session');
-var knexSessionStore = require('connect-session-knex')(expressSession);
-var bodyParser = require('body-parser');
-var scrypt = require('scrypt-for-humans');
-var csurf = require('csurf');
-var ent = require('ent'); //todo: this isn't needed because of jade, right?
-var path = require('path');
-var Promise = require('bluebird');
+const express = require('express');
+const expressSession = require('express-session');
+const knexSessionStore = require('connect-session-knex')(expressSession);
+const bodyParser = require('body-parser');
+const csurf = require('csurf');
+const ent = require('ent'); //todo: this isn't needed because of jade, right?
+const path = require('path');
 
-var app = express();
-var expressWs = require('express-ws')(app);
+const app = express();
+const expressWs = require('express-ws')(app);
 
-var activeConnections = { };
+const routes = require('./routes.js');
 
-var db = knex({
-	client: 'sqlite3',
-	connection: {
-		filename: path.join(__dirname, 'warpsong.sqlite3')
-	},
-	useNullAsDefault: true
-});
+const connections = require('./connections.js');
+const activeConnections = connections.activeConnections;
+
+const db = require('./db.js');
 
 app.set('views', path.join(__dirname, '/views'));
 app.set('view engine', 'pug');
@@ -39,185 +33,12 @@ app.use(bodyParser.urlencoded({ extended: true }));
 
 app.use('/static', express.static(path.join(__dirname, '/static')));
 
-app.get('/login', (req, res) => res.render('login'));
-
-app.get('/register', (req, res) => res.render('register'));
-
-app.post('/login', (req, res) => {
-	return Promise.try(() => db('users').where({ name: req.body.name }))
-	.then(users => {
-		if(users.length == 0) res.render('login', { errors: ['Invalid username or password.'] });
-		else{
-			return Promise.try(() => scrypt.verifyHash(req.body.pw, users[0].hash))
-			.then(() => {
-				req.session.userID = users[0].id; // Login successful
-				res.redirect('/');
-			})
-			.catch(scrypt.PasswordError, err => res.render('login', { errors: ['Invalid username or password.'] }));
-		}
-	});
-});
-
-app.post('/register', (req, res) => {
-	var locals = { errors: [] };
-	if(req.body.pw !== req.body.confirmPw) locals.errors.push('Passwords do not match.'); // Don't bother checking pw length if they don't match.
-	else if(req.body.pw.length < 4) locals.errors.push('Password must contain at least 4 characters.');
-	if(req.body.name.length < 2){ // Don't bother checking for existing user if name is too short.
-		locals.errors.push('Username must contain at least 2 characters.');
-		res.render('register', locals);
-	}
-	else{ //todo, more errors, for valid chars etc.
-		return Promise.all([
-			() => scrypt.hash(req.body.pw),
-			() => db('users').where({ name: req.body.name })
-			].map(x => Promise.try(x)))
-		.then(results => {
-			var hash = results[0];
-			var users = results[1];
-			if(users.length > 0){
-				locals.errors.push('That username is already taken.');
-				res.render('register', locals);
-			}
-			else{ // registration successful
-				return Promise.try(() => db('users').insert({ name: req.body.name, hash: hash }))
-				.then(() => db('users').where({ name: req.body.name }))
-				.then(justInsertedUsers => {
-					var justInsertedUser = justInsertedUsers[0];
-					req.session.userID = justInsertedUser.id; // Log in
-					//todo: temp message: "account created!"
-					res.redirect('/');
-				});
-			}
-		});
-	}
-});
-
-app.use('/', (req, res, next) =>{
-	if(!req.session.userID) res.redirect('/login');
-	else{
-		Promise.try(() => db('users').where({ id: req.session.userID }))
-		.then(users => {
-			if(users.length == 0){
-				req.session.destroy();
-				res.redirect('/login');
-			}
-			else{
-				req.session.username = users[0].name;
-				next();
-			}
-		});
-	}
-});
-
-function getActiveConnection(session){
-	if(activeConnections[session.userID]){ // Check whether this user has any active connections...
-		return activeConnections[session.userID][session.id]; // ...for this session.
-	}
-	else return null;
-}
-
-function closeActiveConnection(session){
-	if(activeConnections[session.userID]){
-		var ws = activeConnections[session.userID][session.id];
-		if(ws){ // Close, then remove any existing connection for this session.
-			ws.close();
-			delete activeConnections[session.userID][session.id];
-		}
-	}
-}
-
-app.get('/reconnect', function(req, res){
-	if(!getActiveConnection(req.session)) res.redirect('/'); // If there's no active connection, go back to the homepage.
-	else res.render('reconnect');
-});
-
-app.post('/reconnect', function(req, res){
-	closeActiveConnection(req.session);
-	res.redirect('/');
-});
-
-app.get('/', function(req, res){
-	if(getActiveConnection(req.session)) res.redirect('/reconnect'); // Offer to let them reconnect, if there's an active connection already.
-	else res.render('index');
-});
-
-function schedulePings(interval){
-	setTimeout(() => {
-		pingAll();
-		schedulePings(interval);
-	}, interval);
-}
-
-function ping(ws){
-	ws.send(JSON.stringify({ type: 'ping' }));
-}
-
-function pingAll(){
-	var any = false;
-	for(var userID in activeConnections){
-		any = true;
-		for(var sessionID in activeConnections[userID]){
-			ping(activeConnections[userID][sessionID]);
-		}
-	}
-	if(any)	setTimeout(pingCheck, 5000);
-}
-
-function pingCheck(){
-	for(var userID in activeConnections){
-		pingCheckForUser(userID);
-	}
-}
-
-function pingAllForUser(userID, currentSessionID){
-	var userConnections = activeConnections[userID];
-	if(userConnections){
-		for(var sessionID in userConnections){
-			if(sessionID != currentSessionID){
-				ping(userConnections[sessionID]);
-			}
-		}
-		setTimeout(() => pingCheckForUser(userID), 5000);
-	}
-}
-
-function pingCheckForUser(userID){
-	var userConnections = activeConnections[userID];
-	if(userConnections){
-		var changed = false;
-		for(var sessionID in userConnections){
-			var ws = userConnections[sessionID];
-			if(Date.now() - ws.lastCommunicationTime > 5500){ // 5.5 seconds
-				closeActiveConnection(sessionID);
-				changed = true;
-			}
-		}
-		if(changed){
-			broadcastActiveConnectionCount(userID);
-		}
-	}
-}
-
-function activeConnectionCount(userID){
-	var userConnections = activeConnections[userID];
-	if(userConnections) return Object.keys(userConnections).length;
-	else return 0;
-}
-
-function broadcastActiveConnectionCount(userID){
-	var count = activeConnectionCount(userID);
-	var userConnections = activeConnections[userID];
-	if(userConnections){
-		for(var sessionID in userConnections){
-			userConnections[sessionID].send(JSON.stringify({ type: 'connectionCount', count: count }));
-		}
-	}
-}
+app.use(routes);
 
 app.ws('/', function(ws, req){
 	ws.on('close', e => {
-		closeActiveConnection(req.session);
-		broadcastActiveConnectionCount(req.session.userID);
+		connections.closeActiveConnection(req.session);
+		connections.broadcastActiveConnectionCount(req.session.userID);
 	});
 	
 	ws.on('message', e => {
@@ -228,7 +49,7 @@ app.ws('/', function(ws, req){
 				// Do nothing; time has already been noted.
 				break;
 			case 'ping all':
-				pingAllForUser(req.session.userID, req.session.id);
+				connections.pingAllForUser(req.session.userID, req.session.id);
 				break;
 			case 'link':
 				var userConnections = activeConnections[req.session.userID];
@@ -249,10 +70,9 @@ app.ws('/', function(ws, req){
 	activeConnections[req.session.userID][req.session.id] = ws;
 	
 	ws.lastCommunicationTime = Date.now();
-	broadcastActiveConnectionCount(req.session.userID);
+	connections.broadcastActiveConnectionCount(req.session.userID);
 });
 
-//schedulePings(30000); // ping at 30 second intervals
-schedulePings(10000); // (or perhaps 10)
+connections.schedulePings(10000); // ping at 10 second intervals
 
 app.listen(14464);
